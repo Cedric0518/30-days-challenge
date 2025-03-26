@@ -1,0 +1,267 @@
+---
+title: "Untitled"
+author: "Cedric KESSAHOU"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+  
+
+
+
+```{r}
+library(tidyverse)
+library(caret)
+library(GGally)
+library(corrplot)
+library(tidymodels)
+library(car)  # Pour calculer le VIF
+```
+
+Chargement des donnée
+```{r}
+students_data <- read.csv('Students_Grading_Dataset.csv')
+```
+
+Aperçu des données
+```{r}
+head(students_data)
+
+```
+```{r}
+summary(students_data)
+```
+
+Suppression des colonnes non pertinentes (ID, nom, email)
+```{r}
+students_data<- students_data %>%
+  select(- Student_ID, -First_Name, -Email, -Last_Name)
+```
+
+```{r}
+head(students_data)
+```
+Vérification des valeurs manquantes
+```{r}
+total_na <- sum(is.na(students_data))
+cat ('Nombre total de valeurs manquantes:', total_na, '\n')
+```
+Visualisation des colonnes ayant des valeurs manquantes
+
+```{r}
+valeurs_manquante <- colSums(is.na(students_data))
+valeurs_manquante <- valeurs_manquante[valeurs_manquante> 0]
+print (valeurs_manquante)
+```
+
+Traitement des valeurs manquantes
+```{r}
+students_data <- students_data %>%
+  mutate(across(where(is.numeric), ~ifelse(is.na(.), median(., na.rm = TRUE), .))) %>%
+  mutate(across(where(is.character), ~ifelse(is.na(.), as.character(stats::mode(., na.rm = TRUE)), .)))
+
+```
+
+Convertissons les variables catégoriques en facteur
+```{r}
+students_data$Gender <- as.factor(students_data$Gender)
+students_data$Department <- as.factor(students_data$Department)
+students_data$Internet_Access_at_Home <- as.factor(students_data$Internet_Access_at_Home)
+students_data$Parent_Education_Level <- as.factor(students_data$Parent_Education_Level)
+students_data$Family_Income_Level <- as.factor(students_data$Family_Income_Level)
+students_data$Extracurricular_Activities <- as.factor(students_data$Extracurricular_Activities)
+
+```
+
+
+ Visualisons les correlations entre les variables numériques
+```{r}
+variable_numerique<- students_data%>%
+  select_if(is.numeric)
+ ggpairs(variable_numerique)
+```
+
+Matrice de correlation
+```{r}
+cor_matrix <- cor (students_data[,variable_numerique], use= 'complete.obs')
+```
+
+Affichage de la heatmap
+```{r}
+corrplot(cor_matrix, method="color", tl.cex=0.5, tl.col="black", addCoef.col="black", number.cex=0.5)
+```
+ 
+ Sauvegardons notre dataset nettoyé
+```{r}
+write.csv(students_data, 'students_data_cleaned.csv', row.names = FALSE)
+```
+
+Importons notre data set nettoyé
+```{r}
+data <- read.csv('students_data_cleaned.csv')
+```
+
+# Normaliser les variables numériques
+```{r}
+numerical_vars <- data %>% select(where(is.numeric))
+norm_data <- scale(numerical_vars)
+data <- cbind(norm_data, data %>% select(where(is.factor)))
+
+```
+
+
+ 
+ Regression lineaire
+
+Divisons notre ensemble d'entrainement et de test
+```{r}
+set.seed(123)
+train_index<- sample(seq_len(nrow(data)), size= 0.8 * nrow(data))
+train_data <-data[train_index, ]
+test_data <- data[-train_index, ]
+```
+
+Entrainement du model de regression lineaire
+```{r}
+model <- lm (Total_Score ~ ., data = train_data)
+```
+
+#Resumé du modele
+```{r}
+summary(model)
+```
+
+# Calcul du VIF pour chaque variable explicative
+
+```{r}
+vif_values <- vif(model)
+print (vif_values)
+```
+
+# Affichage des variables ayant une multicolinéarité sévère (VIF > 10)
+
+```{r}
+cat('Variables avec une multicolinéarité sévère (VIF > 10) :\n')
+print(vif_values[vif_values > 10])
+```
+On peut conclure que les varables sont suffisament indépendant l'un de l'autre
+
+
+
+### Validation Croisée pour Régression Linéaire Classique 
+```{r}
+cv_control <- trainControl(method = "cv", number = 5)
+```
+
+# Modèle de régression linéaire classique (entraînement avec validation croisée seulement)
+
+```{r}
+lm_cv_model <- train(Total_Score ~ ., data = train_data, method = "lm", trControl = cv_control)
+```
+
+# Affichage des résultats de la validation croisée
+
+```{r}
+print(lm_cv_model)
+cv_control <- trainControl(method = "cv", number = 5)
+cv_control <- trainControl(method = "cv", number = 5)
+```
+# Modèle de régression linéaire classique
+
+```{r}
+lm_model <- train(Total_Score ~ ., data = train_data, method = "lm", trControl = cv_control)
+
+
+# Affichage des résultats de la validation croisée
+print(lm_model)
+```
+
+
+
+# Entraînement final sur l'ensemble d'entraînement complet (sans validation croisée)
+```{r}
+
+final_lm_model <- lm(Total_Score ~ ., data = train_data)
+
+print (final_lm_model)
+```
+
+
+
+#Prediction sur l'ensemble de test
+ 
+```{r}
+predictions<- predict(lm_model, newdata = test_data)
+
+test_resultats<- data.frame(Observé= test_data$Total_Score, Prédit = predictions)
+
+print(test_resultats)
+```
+
+
+Evaluation des performances
+```{r}
+rmse <- sqrt(mean((test_resultats$Observé - test_resultats$Prédit)^2))
+rsq <- cor(test_resultats$Observé, test_resultats$Prédit)^2
+
+cat('RMSE :', rmse, '\n')
+cat('R² :', rsq, '\n')
+
+```
+##CONCLUSION##
+Il n'existe quasiement aucune corrélation lineaire entre les variables et principalement avec notre variable target Total_socre
+ 
+ 
+ ### Comparaison avec LASSO ###
+```{r}
+install.packages("glmnet")
+
+```
+```{r}
+library(Matrix)
+library(glmnet)  # Pour LASSO et la régression Ridge
+```
+ 
+```{r}
+# Préparation des données pour glmnet
+X_train <- model.matrix(Total_Score ~ ., train_data)[,-1]  # Supprimer l'intercept
+Y_train <- train_data$Total_Score
+X_test <- model.matrix(Total_Score ~ ., test_data)[,-1]
+Y_test <- test_data$Total_Score
+
+```
+
+ 
+```{r}
+# Modèle LASSO (alpha = 1)
+lasso_model <- cv.glmnet(X_train, Y_train, alpha = 1, standardize = TRUE)
+best_lambda <- lasso_model$lambda.min
+```
+
+```{r}
+
+# Prédictions LASSO
+lasso_predictions <- predict(lasso_model, s = best_lambda, newx = X_test)
+
+```
+
+```{r}
+# Évaluation des performances LASSO
+lasso_rmse <- sqrt(mean((Y_test - lasso_predictions)^2))
+lasso_rsq <- cor(Y_test, lasso_predictions)^2
+
+cat('LASSO - RMSE :', lasso_rmse, '\n')
+cat('LASSO - R² :', lasso_rsq, '\n')
+```
+
+```{r}
+# Visualisation des coefficients importants du LASSO
+coefficients <- coef(lasso_model, s = best_lambda)
+important_vars <- coefficients[coefficients != 0]
+
+cat('Variables importantes sélectionnées par LASSO :\n')
+print(important_vars)
+```
+
+
